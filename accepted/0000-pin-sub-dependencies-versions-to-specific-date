@@ -1,0 +1,79 @@
+# Pin the sub dependencies of a package to a version and a point in time.
+
+## Summary
+
+When pinning a dependency in package.json we should be able to specify a version and a date in time. When npm installs the package it will install the version of the package that is pinned and then move on to sub-dependencies.
+
+When determining which version of the sub-dependcy to install it will use the date/time specified in package.json to determine what the version of that sub-dependency would have been on that date/time.
+
+It might also be possible to use a semver range on the primary package and also specify a date so that it will simply apply the range as if the install was being ran at that specific date time.
+
+We might nickname the feature time-travel.
+
+## Motivation
+
+Currently npm supports having package-lock.json in an effort to pin a package and its dependencies to a specific set of versions. This set is determined when the developer runs npm install.
+
+This can then be changed if package-lock.json is updated.
+
+To truly make npm install deterministic there should be a way to "lock" a version of package and it sub-dependency to an absolute state. Using a date/time along with version to create a tuple could specify an exact state of a package where version alone cannot.
+("1.2.3") vs ("1.2.3","2019-02-15T00:00:00Z")
+
+## Detailed Explanation
+
+In package.json a developer can use both a version of package along with a date. This could be done with the "install --save" option when running npm install with a proposed "--save-with-date" option.
+
+A proposed user story is as follows:
+
+* developer wants to use "react" as a dependency in their project.
+* They run "npm install --save-with-date react"
+* At that time react's latest version is 16.8.2
+* The time is exactly 2019-02-15T20:30:45Z in GMT.
+* react has a sub-dependency on "object-assign : ^4.1.0" and object-assign's latest version matches the range of ^4.1.0 is 4.1.0.
+* npm will write to package.json a dependency in the proposed following form.
+* react : '16.8.2$2019-02-15T20:30:45Z$'
+* npm will install object-assign v4.1.0 as a react sub-dependency
+
+* Two months pass
+* In that time object-assign releases v4.1.1
+
+* another developer runs npm install for the project for the first time on their computer.
+* npm like for the other developer installs object-assign 4.1.0 for react and not 4.1.1 as it might without this feature. assuming no package-lock.json mechanic being utilized.
+
+
+
+## Rationale and Alternatives
+
+In general developers need a way to have a deterministic install of a package and its dependencies. The first npm install should act as the nth npm install.
+
+package-lock.json does solve this problem in some ways. The biggest issue is that now package-lock.json is a generated file and in source control. This causes problems with certain merge strategies.
+
+Another problem with package-lock.json is that a developer could overwrite package-lock.json with latest and the diff could be confusing to see in a PR. Updating a date is very concise.
+
+Another option is to use a private repository or cache and be able to create a package-lock.json that only resides there and is for a singular package. This isn't implemented in any tool that I know of at the moment.
+
+Another option is to just check in your node_modules into your repo which will absolutely pin the versions.
+
+
+## Implementation
+
+When npm determines the version of a package to install it will need the ability to figure out what version a package was at a specific time.
+
+Once that decision is made then npm will install the package sub-dependency as normal.
+
+To determine the version npm will need to be able to pull information on a package's publishing dates. Search for all version that match the semver range. Then find the last version that is before (<= date order by publish_date desc) the date in package.json
+
+## Prior Art
+
+I've been unable to find another package tool that supports date as a version scheme.
+
+In the database world there is a feature called "restore to point in time" or "point in time recovery(pitr)". This is implemented by many databases. This allows you to restore a database, usually from a write ahead log backup, to a specific point in time.
+
+See https://www.postgresql.org/docs/9.1/continuous-archiving.html for some information about Postgres's PITR implementation.
+
+
+## Unresolved Questions and Bikeshedding
+
+* There are a few competing standards for date/time. Pick one that handles date and time well. use of GMT would be advised.
+* Determine the syntax for specifying the date in package.json after a specific vesrion. Such as "package" : "^1.2.3${the_date}"
+* This might require the repository itself to store information about package publishing that are not being stored today.
